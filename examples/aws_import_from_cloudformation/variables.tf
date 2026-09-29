@@ -193,7 +193,7 @@ variable "temporal" {
 variable "encryption_key_secret" {
   type = object({
     secret_id = string
-    property  = optional(string, "password")
+    property  = optional(string)
   })
   description = <<-EOT
     The existing Retool encryption key — the CloudFormation stack's
@@ -201,16 +201,18 @@ variable "encryption_key_secret" {
     the Retool database are encrypted with it, and a fresh key makes every saved
     resource credential undecryptable.
 
-    `property` is the JSON key within the secret; CloudFormation's
-    GenerateSecretString nests the value under "password". Set it to null if the
-    secret holds a bare string.
+    `property` is the JSON key the value is nested under (e.g. "password" when
+    CloudFormation's GenerateSecretString wraps it). Leave it null — the default
+    — when the secret holds a bare string, as import-tfvars sets it. Do not rely
+    on a "password" default here: an explicit null must stay null so bare-string
+    secrets sync, which is why property has no default.
   EOT
 }
 
 variable "jwt_secret" {
   type = object({
     secret_id = string
-    property  = optional(string, "password")
+    property  = optional(string)
   })
   description = "The existing Retool JWT secret — the CloudFormation stack's RetoolJWTSecret. Carrying it over keeps existing user sessions valid across the cutover. Set to null to have Terraform generate a new one (all users are signed out)."
   default     = null
@@ -223,6 +225,12 @@ variable "license_key_secret" {
   })
   description = "Secrets Manager secret holding the Retool license key — the CloudFormation stack's LicenseKeyARN, whose value is JSON with the key under `licenseKey`. Set `property = null` if your secret holds the bare key string. Leave the whole object null to run without a license."
   default     = null
+}
+
+variable "secret_kms_key_arns" {
+  type        = list(string)
+  description = "KMS key ARNs encrypting any of the carried-over secrets. CloudFormation-created Retool secrets are encrypted with a customer-managed key, and External Secrets Operator needs kms:Decrypt on it to read them; import-tfvars populates this from the stack's secrets. Leave empty for secrets on the default aws/secretsmanager key."
+  default     = []
 }
 
 # ---------------------------------------------------------------------------
@@ -269,6 +277,22 @@ variable "hosted_zone_id" {
   default     = null
 }
 
+variable "alb_ingress_rules" {
+  type = list(object({
+    description      = optional(string)
+    from_port        = number
+    to_port          = number
+    protocol         = optional(string, "tcp")
+    cidr_blocks      = optional(list(string), [])
+    ipv6_cidr_blocks = optional(list(string), [])
+  }))
+  default = [
+    { description = "HTTPS from internet", from_port = 443, to_port = 443, cidr_blocks = ["0.0.0.0/0"] },
+    { description = "HTTP from internet", from_port = 80, to_port = 80, cidr_blocks = ["0.0.0.0/0"] },
+  ]
+  description = "Ingress rules for the user-facing ALB security group. Defaults to open 80/443. Override (e.g. in overrides.auto.tfvars) to restrict the ALB to a CDN/edge — e.g. only Akamai ranges on 443 — instead of 0.0.0.0/0."
+}
+
 variable "alb_oidc" {
   type = object({
     issuer                     = string
@@ -301,6 +325,18 @@ variable "alb_oidc" {
 variable "retool_image_tag" {
   type        = string
   description = "Retool backend image tag, e.g. \"4.0.9-stable\". Match the tag your CloudFormation stack runs so the migration changes one thing at a time; upgrade afterwards."
+}
+
+variable "retool_image_repository" {
+  type        = string
+  description = "Repository for the Retool backend image (used by the backend, dbconnector, and workflow pods). Set to an ECR URI such as \"708000398788.dkr.ecr.us-west-2.amazonaws.com/retool/backend\" to pull from ECR instead of Docker Hub. Leave null for the chart default (tryretool/backend). retool_image_tag applies to this repository. For same-account ECR the node IAM role's ECR read permission covers the pull; no imagePullSecret is needed."
+  default     = null
+}
+
+variable "code_executor_image_repository" {
+  type        = string
+  description = "Repository for the Retool code-executor image. Set to an ECR URI to pull from ECR instead of Docker Hub. Leave null for the chart default (tryretool/code-executor-service). When set, retool_image_tag is used as its tag, so mirror it under the same tag as the backend."
+  default     = null
 }
 
 variable "retool_helm_chart_version" {

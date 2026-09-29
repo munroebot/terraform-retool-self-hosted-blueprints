@@ -109,6 +109,7 @@ class Secret:
     name: str
     json_keys: list[str] | None  # None when the value is a bare string
     readable: bool
+    kms_key_id: str | None = None  # the key that encrypts it; None = default key
 
     def property_for(self, preferred: str) -> str | None:
         """Which JSON key holds the value, or None if it's a bare string."""
@@ -154,6 +155,8 @@ class Discoverer:
         self.cfn = session.client("cloudformation", region_name=region)
         self.rds = session.client("rds", region_name=region)
         self.sm = session.client("secretsmanager", region_name=region)
+        self.kms = session.client("kms", region_name=region)
+        self._cmk_arn_cache: dict[str, str | None] = {}
 
     def run(self) -> StackFacts:
         facts = self._read_stack()
@@ -379,13 +382,16 @@ class Discoverer:
         try:
             meta = self.sm.describe_secret(SecretId=secret_id)
             arn, name = meta["ARN"], meta["Name"]
+            kms_key_id = meta.get("KmsKeyId")
         except ClientError:
             return Secret(arn=secret_id, name=secret_id, json_keys=None, readable=False)
 
         try:
             value = self.sm.get_secret_value(SecretId=secret_id).get("SecretString")
         except ClientError:
-            return Secret(arn=arn, name=name, json_keys=None, readable=False)
+            return Secret(
+                arn=arn, name=name, json_keys=None, readable=False, kms_key_id=kms_key_id
+            )
 
         keys: list[str] | None = None
         if value:
@@ -395,7 +401,35 @@ class Discoverer:
                     keys = sorted(parsed.keys())
             except json.JSONDecodeError:
                 keys = None
-        return Secret(arn=arn, name=name, json_keys=keys, readable=True)
+        return Secret(
+            arn=arn, name=name, json_keys=keys, readable=True, kms_key_id=kms_key_id
+        )
+
+    def customer_managed_key_arn(self, kms_key_id: str | None) -> str | None:
+        """Resolve a secret's KMS key to a CMK ARN needing an explicit grant.
+
+        Returns None for the default aws/secretsmanager key (an AWS-managed key
+        that grants no cross-principal decrypt and needs none), and resolves key
+        ids or alias ARNs to the full key ARN that an IAM policy Resource
+        requires. A secret with no KmsKeyId uses the default key.
+        """
+        if not kms_key_id:
+            return None
+        if kms_key_id not in self._cmk_arn_cache:
+            self._cmk_arn_cache[kms_key_id] = self._resolve_cmk_arn(kms_key_id)
+        return self._cmk_arn_cache[kms_key_id]
+
+    def _resolve_cmk_arn(self, kms_key_id: str) -> str | None:
+        try:
+            meta = self.kms.describe_key(KeyId=kms_key_id)["KeyMetadata"]
+        except ClientError:
+            # Can't resolve it; pass through only a concrete key ARN so a
+            # malformed alias never lands in an IAM policy Resource.
+            return kms_key_id if ":key/" in kms_key_id else None
+        # AWS-managed keys (the default aws/secretsmanager key) need no grant.
+        if meta.get("KeyManager") == "AWS":
+            return None
+        return meta.get("Arn")
 
     def secret_field(self, secret_id: str, key: str) -> str | None:
         try:
@@ -515,7 +549,7 @@ def _discover(ctx: click.Context) -> tuple[StackFacts, Discoverer]:
 @click.pass_context
 def describe_cf_stack(ctx: click.Context) -> None:
     """Summarize what the stack contains."""
-    facts, _ = _discover(ctx)
+    facts, discoverer = _discover(ctx)
 
     console.print(f"\n[bold]{facts.stack_name}[/bold] in [bold]{facts.region}[/bold]\n")
 
@@ -582,12 +616,14 @@ def describe_cf_stack(ctx: click.Context) -> None:
                 "access yourself."
             )
 
+    cmk_arns: set[str] = set()
     if facts.secrets:
         console.print()
         table = Table(title="Secrets", title_justify="left")
         table.add_column("Purpose", style="cyan")
         table.add_column("Name", overflow="fold")
         table.add_column("Shape")
+        table.add_column("Encryption")
         for key in sorted(facts.secrets):
             secret = facts.secrets[key]
             if not secret.readable:
@@ -596,8 +632,22 @@ def describe_cf_stack(ctx: click.Context) -> None:
                 shape = "bare string"
             else:
                 shape = f"JSON: {', '.join(secret.json_keys)}"
-            table.add_row(key, secret.name, shape)
+            cmk = discoverer.customer_managed_key_arn(secret.kms_key_id)
+            if cmk:
+                cmk_arns.add(cmk)
+                encryption = f"CMK {cmk.rsplit('/', 1)[-1]}"
+            else:
+                encryption = "default key"
+            table.add_row(key, secret.name, shape, encryption)
         console.print(table)
+
+    if cmk_arns:
+        notes.append(
+            "Secrets encrypted with a customer-managed KMS key were found. "
+            "import-tfvars sets secret_kms_key_arns so External Secrets Operator "
+            "is granted kms:Decrypt on "
+            f"{', '.join(sorted(cmk_arns))}; without it, ESO cannot read them."
+        )
 
     if "encryption_key" not in facts.secrets:
         notes.append(
@@ -722,6 +772,20 @@ def import_tfvars(
     # -- ALB OIDC --------------------------------------------------------
     if alb_oidc := _alb_oidc_values(facts):
         values["alb_oidc"] = alb_oidc
+
+    # -- KMS keys --------------------------------------------------------
+    # ESO needs kms:Decrypt on any customer-managed key encrypting a carried-over
+    # secret; CloudFormation's Retool secrets use one. Default-key secrets resolve
+    # to None and are dropped.
+    cmk_arns = sorted(
+        {
+            arn
+            for secret in facts.secrets.values()
+            if (arn := discoverer.customer_managed_key_arn(secret.kms_key_id))
+        }
+    )
+    if cmk_arns:
+        values["secret_kms_key_arns"] = cmk_arns
 
     rendered = render_tfvars(values)
 

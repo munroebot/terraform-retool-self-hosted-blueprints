@@ -61,6 +61,12 @@ module "retool-services" {
   # live outside the retool/{prefix}/* namespace. See temporal.tf.
   extra_secret_read_arns = compact([try(var.temporal_db.credentials_secret_id, null)])
 
+  # CMK(s) encrypting the carried-over CloudFormation secrets, so ESO can
+  # decrypt them. Populated by import-tfvars; empty for default-key secrets.
+  # Uncomment once a module release including secret_kms_key_arns is published
+  # (the ~> 0.5 constraint above admits it); the pinned 0.5.x has no such input.
+  # secret_kms_key_arns = var.secret_kms_key_arns
+
   enable_agent_sandbox = var.enable_agent_sandbox
   enable_rr_s3         = var.enable_rr_s3
 
@@ -112,6 +118,10 @@ module "user-ingress" {
   vpc = local.vpc
   eks = module.eks.outputs
 
+  # Places the TargetGroupBinding in the Retool namespace (beside the Service it
+  # references); without this it defaults to "default" and registers no targets.
+  retool_services = module.retool-services.outputs
+
   # Bring the CloudFormation stack's certificate rather than minting a new one,
   # and only create a Route53 zone if neither a certificate nor an existing zone
   # was supplied — the usual case is that both are managed elsewhere.
@@ -121,6 +131,12 @@ module "user-ingress" {
   acm_certificate_arn = var.acm_certificate_arn
   create_hosted_zone  = var.acm_certificate_arn == null && var.hosted_zone_id == null
   hosted_zone_id      = var.hosted_zone_id
+
+  # Restrict the ALB to Akamai/internal instead of 0.0.0.0/0 (values in
+  # overrides.auto.tfvars). Uncomment once a module release including
+  # alb_ingress_rules is published (the ~> 0.5 constraint admits it); the
+  # pinned 0.5.x has no such input.
+  # alb_ingress_rules = var.alb_ingress_rules
 
   alb_authenticate_oidc = local.alb_authenticate_oidc
 
