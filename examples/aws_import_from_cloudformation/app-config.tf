@@ -17,9 +17,12 @@ locals {
   )
 
   app_values = [yamlencode({
-    image = {
-      tag = var.retool_image_tag
-    }
+    # repository is set only when overridden, so leaving it null keeps the
+    # chart default (tryretool/backend) rather than emitting an empty string.
+    image = merge(
+      { tag = var.retool_image_tag },
+      var.retool_image_repository != null ? { repository = var.retool_image_repository } : {},
+    )
 
     env = local.app_env
 
@@ -36,9 +39,17 @@ locals {
       }
     }
 
-    codeExecutor = {
-      replicaCount = var.replica_counts.code_executor
-    }
+    # The code-executor is a distinct image; override its repository the same
+    # way, reusing retool_image_tag as the tag (mirror it under that tag).
+    codeExecutor = merge(
+      { replicaCount = var.replica_counts.code_executor },
+      var.code_executor_image_repository != null ? {
+        image = {
+          repository = var.code_executor_image_repository
+          tag        = var.retool_image_tag
+        }
+      } : {},
+    )
 
     # Keeps at least one backend pod serving during rollouts and node
     # consolidation, matching the CloudFormation deployment configuration's

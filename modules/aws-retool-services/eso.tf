@@ -98,6 +98,12 @@ locals {
     ],
     var.extra_secret_read_arns,
   )))
+
+  # KMS keys ESO must be able to decrypt with. Secrets encrypted by a
+  # customer-managed key (e.g. imported from CloudFormation) deny
+  # GetSecretValue at the decrypt step unless the reader also holds
+  # kms:Decrypt on the key; default aws/secretsmanager keys need no grant.
+  eso_secret_kms_key_arns = distinct(compact(var.secret_kms_key_arns))
 }
 
 data "aws_caller_identity" "current" {}
@@ -141,17 +147,29 @@ resource "aws_iam_policy" "eso" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "secretsmanager:GetSecretValue",
-        "secretsmanager:DescribeSecret",
-        "secretsmanager:ListSecretVersionIds",
-        "secretsmanager:GetResourcePolicy",
-        "secretsmanager:BatchGetSecretValue",
-      ]
-      Resource = local.eso_readable_secrets
-    }]
+    Statement = concat(
+      [{
+        Sid    = "ReadRetoolSecrets"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:ListSecretVersionIds",
+          "secretsmanager:GetResourcePolicy",
+          "secretsmanager:BatchGetSecretValue",
+        ]
+        Resource = local.eso_readable_secrets
+      }],
+      # Only emitted when CMK-encrypted secrets are in play: an empty Resource
+      # is a MalformedPolicyDocument, so the whole statement is dropped when
+      # every secret uses the default aws/secretsmanager key.
+      length(local.eso_secret_kms_key_arns) > 0 ? [{
+        Sid      = "DecryptRetoolSecrets"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:DescribeKey"]
+        Resource = local.eso_secret_kms_key_arns
+      }] : [],
+    )
   })
 }
 

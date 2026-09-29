@@ -104,6 +104,12 @@ variable "extra_secret_read_arns" {
   description = "Additional Secrets Manager secret ARNs (or ARN patterns) that External Secrets Operator is granted read access to. Use this when you author ExternalSecret manifests outside this module — e.g. credentials for a second database — that read secrets outside the retool/{prefix}/* namespace."
 }
 
+variable "secret_kms_key_arns" {
+  type        = list(string)
+  default     = []
+  description = "KMS key ARNs that encrypt any of the secrets ESO reads. Grants External Secrets Operator kms:Decrypt/kms:DescribeKey on these keys. Required for secrets encrypted with a customer-managed key (CMK) — e.g. secrets imported from a CloudFormation deployment — since secretsmanager:GetSecretValue alone cannot decrypt them. Leave empty when every secret uses the default aws/secretsmanager key, which needs no explicit grant."
+}
+
 variable "license_key" {
   type        = string
   default     = null

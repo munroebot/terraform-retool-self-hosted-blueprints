@@ -45,6 +45,27 @@ variable "retool_service_port" {
   default     = 3000
 }
 
+variable "alb_ingress_rules" {
+  type = list(object({
+    description      = optional(string)
+    from_port        = number
+    to_port          = number
+    protocol         = optional(string, "tcp")
+    cidr_blocks      = optional(list(string), [])
+    ipv6_cidr_blocks = optional(list(string), [])
+  }))
+  default = [
+    { description = "HTTPS from internet", from_port = 443, to_port = 443, cidr_blocks = ["0.0.0.0/0"] },
+    { description = "HTTP from internet", from_port = 80, to_port = 80, cidr_blocks = ["0.0.0.0/0"] },
+  ]
+  description = <<-EOT
+    Ingress rules for the user-facing ALB security group. Defaults to open 80/443
+    from the internet. Override to restrict the ALB to a CDN/edge or internal
+    ranges — e.g. only a CDN's IPv4/IPv6 ranges on 443 — so the ALB is not exposed
+    to 0.0.0.0/0. Each rule sets cidr_blocks and/or ipv6_cidr_blocks.
+  EOT
+}
+
 variable "enable_https_listener" {
   type        = bool
   description = <<-EOT
