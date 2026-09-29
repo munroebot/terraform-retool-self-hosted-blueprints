@@ -61,7 +61,7 @@ variable "alb_ingress_rules" {
   description = <<-EOT
     Ingress rules for the user-facing ALB security group. Defaults to open 80/443
     from the internet. Override to restrict the ALB to a CDN/edge or internal
-    ranges — e.g. only Akamai IPv4/IPv6 ranges on 443 — so the ALB is not exposed
+    ranges — e.g. only a CDN's IPv4/IPv6 ranges on 443 — so the ALB is not exposed
     to 0.0.0.0/0. Each rule sets cidr_blocks and/or ipv6_cidr_blocks.
   EOT
 }

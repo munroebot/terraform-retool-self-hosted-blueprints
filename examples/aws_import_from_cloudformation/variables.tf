@@ -290,7 +290,7 @@ variable "alb_ingress_rules" {
     { description = "HTTPS from internet", from_port = 443, to_port = 443, cidr_blocks = ["0.0.0.0/0"] },
     { description = "HTTP from internet", from_port = 80, to_port = 80, cidr_blocks = ["0.0.0.0/0"] },
   ]
-  description = "Ingress rules for the user-facing ALB security group. Defaults to open 80/443. Override (e.g. in overrides.auto.tfvars) to restrict the ALB to a CDN/edge — e.g. only Akamai ranges on 443 — instead of 0.0.0.0/0."
+  description = "Ingress rules for the user-facing ALB security group. Defaults to open 80/443. Override (e.g. in overrides.auto.tfvars) to restrict the ALB to a CDN/edge — e.g. only its published ranges on 443 — instead of 0.0.0.0/0."
 }
 
 variable "alb_oidc" {
@@ -329,7 +329,7 @@ variable "retool_image_tag" {
 
 variable "retool_image_repository" {
   type        = string
-  description = "Repository for the Retool backend image (used by the backend, dbconnector, and workflow pods). Set to an ECR URI such as \"708000398788.dkr.ecr.us-west-2.amazonaws.com/retool/backend\" to pull from ECR instead of Docker Hub. Leave null for the chart default (tryretool/backend). retool_image_tag applies to this repository. For same-account ECR the node IAM role's ECR read permission covers the pull; no imagePullSecret is needed."
+  description = "Repository for the Retool backend image (used by the backend, dbconnector, and workflow pods). Set to an ECR URI such as \"123456789012.dkr.ecr.us-west-2.amazonaws.com/retool/backend\" to pull from ECR instead of Docker Hub. Leave null for the chart default (tryretool/backend). retool_image_tag applies to this repository. For same-account ECR the node IAM role's ECR read permission covers the pull; no imagePullSecret is needed."
   default     = null
 }
 

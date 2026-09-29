@@ -108,7 +108,7 @@ resource "aws_security_group" "alb" {
   vpc_id      = var.vpc.vpc_id
 
   # Defaults to open 80/443 (see var.alb_ingress_rules); override to restrict the
-  # ALB to a CDN/edge (e.g. Akamai ranges) or internal CIDRs.
+  # ALB to a CDN/edge (e.g. its published ranges) or internal CIDRs.
   dynamic "ingress" {
     for_each = var.alb_ingress_rules
     content {

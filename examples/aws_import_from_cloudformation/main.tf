@@ -132,8 +132,8 @@ module "user-ingress" {
   create_hosted_zone  = var.acm_certificate_arn == null && var.hosted_zone_id == null
   hosted_zone_id      = var.hosted_zone_id
 
-  # Restrict the ALB to Akamai/internal instead of 0.0.0.0/0 (values in
-  # overrides.auto.tfvars). Uncomment once a module release including
+  # Restrict the ALB to a CDN/edge or internal ranges instead of 0.0.0.0/0
+  # (values in overrides.auto.tfvars). Uncomment once a module release including
   # alb_ingress_rules is published (the ~> 0.5 constraint admits it); the
   # pinned 0.5.x has no such input.
   # alb_ingress_rules = var.alb_ingress_rules
